@@ -1555,9 +1555,8 @@
         }
         
         // Function to load images directly from local Revelation Walls Images folder for pre-loading
-        function loadImageWithProxyForPreload(originalUrl, index, resolve, tryLocal = true, retryCount = 0) {
-            // Always load from local folder - no fallbacks needed
-            const localImagePath = getLocalImagePath(originalUrl);
+        function loadImageWithProxyForPreload(originalUrl, index, resolve, nftData = null, retryCount = 0) {
+            const localImagePath = retryCount > 0 ? originalUrl : getLocalImagePath(originalUrl, USE_SMALL_IMAGES, nftData);
             if (localImagePath) {
                 console.log(`🔄 Pre-loading local image ${index + 1}: ${localImagePath}`);
                 
@@ -1592,10 +1591,10 @@
                     
                     // Try to check if file exists and retry once
                     if (retryCount === 0) {
-                        console.log(`🔄 Retrying image ${index + 1} once...`);
+                        console.log(`🔄 Retrying with full-size image ${index + 1}...`);
                         setTimeout(() => {
-                            loadImageWithProxyForPreload(originalUrl, index, resolve, tryLocal, retryCount + 1);
-                        }, 1000);
+                            loadImageWithProxyForPreload(originalUrl, index, resolve, nftRow, 1);
+                        }, 500);
                     } else {
                         resolve({ success: false, index, error: 'load_error' });
                     }
@@ -2541,7 +2540,7 @@
 
             // Load image texture directly (should be cached from pre-loading)
             if (nftData.mediaUrl) {
-                loadImageWithFallbacks(nftData.mediaUrl, imageMaterial);
+                loadImageWithFallbacks(nftData.mediaUrl, imageMaterial, false, nftData);
             } else {
                 console.warn('No mediaUrl found for NFT:', nftData);
                 imageMaterial.color.setHex(0x666666);
@@ -2615,11 +2614,19 @@
             }
         }
         
-        // Resolve image URL: use full URLs (ICP, CDN) directly; fallback to local path for dev
-        function getLocalImagePath(originalUrl) {
+        // Prefer smaller images for faster loading (ICP thumbnail path)
+        const USE_SMALL_IMAGES = true;
+        
+        // Resolve image URL: prefer smaller images for optimal gallery loading
+        function getLocalImagePath(originalUrl, preferSmall = USE_SMALL_IMAGES, nftData = null) {
             if (!originalUrl) return null;
-            // Use full URLs directly (ICP raw.ic0.app, etc.) - works on GitHub Pages & static hosts
             if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
+                if (preferSmall && nftData && (nftData.mediaUrlSmall || nftData.thumbnailUrl)) {
+                    return nftData.mediaUrlSmall || nftData.thumbnailUrl;
+                }
+                if (preferSmall && originalUrl.includes('/file/') && originalUrl.match(/\/file\/(\d+)\.png$/)) {
+                    return originalUrl.replace(/\/file\/(\d+)\.png$/, '/thumbnail/$1.png');
+                }
                 return originalUrl;
             }
             // Fallback: build local path for offline/dev with bundled images
@@ -2638,30 +2645,24 @@
         
         // External proxy functions removed - only local images are used now
         
-        // Function to load images directly from local Revelation Walls Images folder
-        function loadImageWithFallbacks(originalUrl, material) {
-            // Only load from local folder - no fallbacks needed
-            const localImagePath = getLocalImagePath(originalUrl);
-            if (localImagePath) {
-                console.log(`🔄 Loading local image for frame: ${localImagePath}`);
-                
-                const localLoader = new THREE.TextureLoader();
-                localLoader.crossOrigin = 'anonymous';
-                
-                // Add timeout for large images
-                const timeout = setTimeout(() => {
-                    console.warn(`⏰ Timeout loading frame image: ${localImagePath}`);
-                    material.color.setHex(0x666666);
-                    console.log(`🎨 Set fallback color for: ${localImagePath}`);
-                }, 30000); // 30 second timeout
-                
-                localLoader.load(
-                    localImagePath,
+        function loadImageWithFallbacks(originalUrl, material, retryWithFull = false, nftData = null) {
+            const imageUrl = retryWithFull ? originalUrl : getLocalImagePath(originalUrl, USE_SMALL_IMAGES, nftData);
+            if (!imageUrl) { material.color.setHex(0x666666); return; }
+            
+            const localLoader = new THREE.TextureLoader();
+            localLoader.crossOrigin = 'anonymous';
+            const timeout = setTimeout(() => {
+                console.warn(`⏰ Timeout loading frame image: ${imageUrl}`);
+                material.color.setHex(0x666666);
+            }, 30000);
+            
+            localLoader.load(
+                    imageUrl,
                     (texture) => {
                         clearTimeout(timeout);
                         material.map = texture;
                         material.needsUpdate = true;
-                        console.log(`✅ Frame image load successful: ${localImagePath}`);
+                        console.log(`✅ Frame image loaded: ${imageUrl}`);
                         console.log(`🎨 Texture applied: ${texture.image ? 'Yes' : 'No'}, Size: ${texture.image ? texture.image.width + 'x' + texture.image.height : 'N/A'}`);
                         
                         // Additional debugging for texture application
@@ -2695,24 +2696,15 @@
                     undefined,
                     (error) => {
                         clearTimeout(timeout);
-                        console.error(`❌ Failed to load frame image: ${localImagePath}`);
-                        console.error(`🔍 Frame image error details:`, {
-                            error: error,
-                            errorType: error?.type || 'unknown',
-                            errorTarget: error?.target || 'unknown',
-                            localPath: localImagePath,
-                            originalUrl: originalUrl
-                        });
-                        // Set a fallback color if local image fails
-                        material.color.setHex(0x666666);
-                        console.log(`🎨 Set fallback color for: ${localImagePath}`);
+                        if (!retryWithFull && USE_SMALL_IMAGES && imageUrl !== originalUrl) {
+                            console.warn(`⏭️ Thumbnail failed, retrying with full image: ${originalUrl}`);
+                            loadImageWithFallbacks(originalUrl, material, true);
+                        } else {
+                            material.color.setHex(0x666666);
+                            console.error(`❌ Failed to load image: ${imageUrl}`);
+                        }
                     }
                 );
-            } else {
-                console.error(`❌ Could not determine local image path: ${originalUrl}`);
-                material.color.setHex(0x666666);
-                console.log(`🎨 Set fallback color for: ${originalUrl}`);
-            }
         }
         
         // Function to load images directly from local Revelation Walls Images folder
@@ -3608,6 +3600,7 @@
 
         function loadImageSequentially(loadTask) {
             const { nftData, imageMaterial } = loadTask;
+            const retryWithFull = loadTask.retryWithFull || false;
             
             if (!nftData.mediaUrl) {
                 currentlyLoadingImages--;
@@ -3615,7 +3608,8 @@
                 return;
             }
 
-            console.log(`[Queue] Loading image: ${nftData.mediaUrl}`);
+            const imageUrl = retryWithFull ? nftData.mediaUrl : (getLocalImagePath(nftData.mediaUrl, USE_SMALL_IMAGES, nftData) || nftData.mediaUrl);
+            console.log(`[Queue] Loading image: ${imageUrl}`);
             
             const testImage = new Image();
             testImage.crossOrigin = 'anonymous';
@@ -3669,14 +3663,19 @@
 
             testImage.onerror = (error) => {
                 clearTimeout(imageTimeout);
-                console.error(`[Queue] Failed to load image: ${nftData.mediaUrl}`, error);
                 
-                // Check if it's a 503 error (Service Unavailable)
+                if (!retryWithFull && USE_SMALL_IMAGES && imageUrl !== nftData.mediaUrl) {
+                    imageLoadQueue.unshift({ nftData, imageMaterial, retryWithFull: true });
+                    currentlyLoadingImages--;
+                    processImageQueue();
+                    return;
+                }
+                
+                console.error(`[Queue] Failed to load image: ${nftData.mediaUrl}`, error);
                 const is503Error = error.target && error.target.src && 
                     (error.target.src.includes('503') || error.target.src.includes('Service Unavailable'));
                 
-                // Retry logic with longer delays for sequential loading
-                if (testImage.retryCount < 5) { // Increased from 3 to 5 attempts
+                if (testImage.retryCount < 5) {
                     console.log(`[Queue] Retrying image load (attempt ${testImage.retryCount + 1}): ${nftData.mediaUrl}`);
                     testImage.retryCount++;
                     
@@ -3715,7 +3714,7 @@
                 processImageQueue();
             };
 
-            testImage.src = nftData.mediaUrl;
+            testImage.src = imageUrl;
         }
 
         init();

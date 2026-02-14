@@ -65,6 +65,13 @@ A Three.js-powered virtual gallery showcasing **Revelation Walls** — 100 NFT a
 
 For the full experience, add `Music/44hz Meditation.mp3` to the `Music/` folder. The gallery works without it; the music player will simply be unavailable.
 
+## Image Loading
+
+The gallery prefers **smaller images** for faster loading:
+- Tries `/thumbnail/N.png` when the asset canister provides it (falls back to full `/file/N.png` if 404)
+- Add optional `mediaUrlSmall` or `thumbnailUrl` column to `revelation_walls_NFTs.csv` for explicit small URLs
+- Set `USE_SMALL_IMAGES = false` in index.html to always use full-size images
+
 ## Tech
 
 - **Three.js** — 3D rendering
