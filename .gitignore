@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Optional large assets (uncomment if you add local images)
+# Revelation Walls Images/
+
+# Zip / build artifacts
+*.zip
