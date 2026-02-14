@@ -724,8 +724,8 @@
                 <label for="quality-selector">Render Quality:</label>
                 <select id="quality-selector">
                     <option value="0.5">Performance (50%)</option>
-                    <option value="0.75" selected>Balanced (75%)</option>
-                    <option value="1.0">Quality (100%)</option>
+                    <option value="0.75">Balanced (75%)</option>
+                    <option value="1.0" selected>Quality (100%)</option>
                     <option value="1.25">Ultra (125%)</option>
                 </select>
             </div>
@@ -751,8 +751,8 @@
                 <label for="bloom-quality">Bloom Quality:</label>
                 <select id="bloom-quality">
                     <option value="low">Low</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="high" selected>High</option>
                 </select>
             </div>
             <button id="apply-settings" class="apply-btn">Apply Settings</button>
@@ -1643,26 +1643,26 @@
                     alpha: false // Disable alpha for performance
                 });
                 
-                // Initialize with Performance (75%) quality - lighter on low-end PCs
-                const initialQuality = 0.5; // Ultra-lite default
-                const initialPixelRatio = 0.5; // Minimize GPU load
-                
-                // 640x360 base for weak PCs
-                window.renderWidth = 640;
-                window.renderHeight = 360;
+                // Initialize based on performance mode - full quality by default
+                const initRes = performanceMode === 'quality' ? { w: 1920, h: 1080 } :
+                                performanceMode === 'balanced' ? { w: 1280, h: 720 } : { w: 960, h: 540 };
+                const initPixelRatio = performanceMode === 'quality' ? 1.0 : performanceMode === 'balanced' ? 0.75 : 0.5;
+                window.renderWidth = Math.min(initRes.w, window.innerWidth);
+                window.renderHeight = Math.min(initRes.h, window.innerHeight);
                 renderer.setSize(window.renderWidth, window.renderHeight, false);
-                renderer.setPixelRatio(Math.min(initialPixelRatio, window.devicePixelRatio || 1));
+                renderer.setPixelRatio(Math.min(initPixelRatio, window.devicePixelRatio || 1));
                 
-                console.log(`🎯 Initialized (performance): ${window.renderWidth}×${window.renderHeight}`);
+                console.log(`🎯 Initialized (${performanceMode}): ${window.renderWidth}×${window.renderHeight}`);
                 renderer.toneMapping = THREE.ACESFilmicToneMapping;
                 renderer.toneMappingExposure = 0.6;
                 
-                // Shadow map - disabled by default for performance; enable in Settings for quality
+                // Shadow map - enabled for quality mode
                 if (renderer && renderer.shadowMap && renderer.shadowMap.mapSize) {
-                    renderer.shadowMap.enabled = false; // Off by default - saves significant GPU
-                    renderer.shadowMap.type = THREE.BasicShadowMap; // Lighter than PCFSoft
-                    renderer.shadowMap.mapSize.width = 256;
-                    renderer.shadowMap.mapSize.height = 256;
+                    renderer.shadowMap.enabled = performanceMode !== 'performance';
+                    renderer.shadowMap.type = performanceMode === 'quality' ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;
+                    const shadowSize = performanceMode === 'quality' ? 1024 : performanceMode === 'balanced' ? 512 : 256;
+                    renderer.shadowMap.mapSize.width = shadowSize;
+                    renderer.shadowMap.mapSize.height = shadowSize;
                 }
                 
                 document.body.appendChild(renderer.domElement);
@@ -1803,6 +1803,7 @@
             
             // Event listeners and animation
             window.addEventListener('resize', onWindowResize, false);
+            if (typeof applyPerformanceSettings === 'function') applyPerformanceSettings();
             animate();
             
             console.log('✅ 3D environment built successfully!');
@@ -2999,7 +3000,7 @@
         }
         
         // --- Performance Management System ---
-        let performanceMode = 'performance'; // 'performance', 'balanced', 'quality' - default lightweight for low-end PCs
+        let performanceMode = 'quality'; // 'performance', 'balanced', 'quality' - default full visuals (waterfall, water, bloom, aurora)
         let targetFPS = 30;
         let frameSkip = 0;
         let lastFrameTime = 0;
