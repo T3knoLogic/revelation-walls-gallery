@@ -2614,12 +2614,24 @@
             }
         }
         
-        // Prefer smaller images for faster loading (ICP thumbnail path)
+        // Prefer local Revelation Walls Images for GitHub-hosted gallery (smaller, faster)
         const USE_SMALL_IMAGES = true;
         
-        // Resolve image URL: prefer smaller images for optimal gallery loading
+        // Resolve image URL: prefer bundled Revelation Walls Images, fallback to ICP
         function getLocalImagePath(originalUrl, preferSmall = USE_SMALL_IMAGES, nftData = null) {
             if (!originalUrl) return null;
+            // ICP file URLs: use local bundled images first (./Revelation Walls Images/X-Y/N.png)
+            const urlMatch = originalUrl.match(/\/file\/(\d+)\.png$/);
+            if (urlMatch) {
+                try {
+                    const imageNumber = parseInt(urlMatch[1], 10);
+                    const folderStart = Math.floor(imageNumber / 10) * 10;
+                    const folderEnd = folderStart + 9;
+                    const folderName = `${folderStart}-${folderEnd}`;
+                    return `./Revelation%20Walls%20Images/${folderName}/${imageNumber}.png`;
+                } catch (e) {}
+            }
+            // Non-ICP URLs or fallback: use explicit small URLs or original
             if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
                 if (preferSmall && nftData && (nftData.mediaUrlSmall || nftData.thumbnailUrl)) {
                     return nftData.mediaUrlSmall || nftData.thumbnailUrl;
@@ -2629,17 +2641,6 @@
                 }
                 return originalUrl;
             }
-            // Fallback: build local path for offline/dev with bundled images
-            try {
-                const urlMatch = originalUrl.match(/\/file\/(\d+)\.png$/);
-                if (urlMatch) {
-                    const imageNumber = parseInt(urlMatch[1], 10);
-                    const folderStart = Math.floor(imageNumber / 10) * 10;
-                    const folderEnd = folderStart + 9;
-                    const folderName = `${folderStart}-${folderEnd}`;
-                    return `./Revelation%20Walls%20Images/${folderName}/${imageNumber}.png`;
-                }
-            } catch (e) {}
             return originalUrl;
         }
         
@@ -3814,11 +3815,13 @@
             
             getLocalImagePath(originalUrl) {
                 try {
-                    // Extract the number from the URL (e.g., /file/0.png -> 0)
                     const urlMatch = originalUrl.match(/\/file\/(\d+)\.png$/);
                     if (urlMatch) {
-                        const imageNumber = urlMatch[1];
-                        return `Revelation Walls Images/${imageNumber}.png`;
+                        const imageNumber = parseInt(urlMatch[1], 10);
+                        const folderStart = Math.floor(imageNumber / 10) * 10;
+                        const folderEnd = folderStart + 9;
+                        const folderName = `${folderStart}-${folderEnd}`;
+                        return `./Revelation%20Walls%20Images/${folderName}/${imageNumber}.png`;
                     }
                     return null;
                 } catch (error) {
