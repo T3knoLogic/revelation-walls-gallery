@@ -724,9 +724,9 @@
                 <label for="quality-selector">Render Quality:</label>
                 <select id="quality-selector">
                     <option value="0.5">Performance (50%)</option>
-                    <option value="0.75">Balanced (75%)</option>
+                    <option value="0.75" selected>Balanced (75%)</option>
                     <option value="1.0">Quality (100%)</option>
-                    <option value="1.25" selected>Ultra (125%)</option>
+                    <option value="1.25">Ultra (125%)</option>
                 </select>
             </div>
             <div class="setting-group">
@@ -1645,33 +1645,26 @@
                     alpha: false // Disable alpha for performance
                 });
                 
-                // Initialize with Ultra (125%) quality by default
-                const initialQuality = 1.25; // Ultra quality
-                const initialPixelRatio = 1.0; // Default pixel ratio
+                // Initialize with Performance (75%) quality - lighter on low-end PCs
+                const initialQuality = 0.75; // Performance-first default
+                const initialPixelRatio = 0.75; // Lower for smoother FPS
                 
-                // 1080p resolution with Ultra quality multiplier for enhanced visual quality
-                window.renderWidth = Math.floor(1920 * initialQuality); // 2400
-                window.renderHeight = Math.floor(1080 * initialQuality); // 1350
+                // 720p base - lighter GPU load
+                window.renderWidth = Math.floor(1280 * initialQuality); // 960
+                window.renderHeight = Math.floor(720 * initialQuality);  // 540
                 renderer.setSize(window.renderWidth, window.renderHeight, false);
-                renderer.setPixelRatio(initialPixelRatio);
+                renderer.setPixelRatio(Math.min(initialPixelRatio, window.devicePixelRatio || 1));
                 
-                console.log(`🎯 Initialized with Ultra quality: ${window.renderWidth}×${window.renderHeight} (${initialQuality * 100}%)`);
+                console.log(`🎯 Initialized (performance): ${window.renderWidth}×${window.renderHeight}`);
                 renderer.toneMapping = THREE.ACESFilmicToneMapping;
                 renderer.toneMappingExposure = 0.6;
                 
-                // Enhanced shadow map optimization
+                // Shadow map - disabled by default for performance; enable in Settings for quality
                 if (renderer && renderer.shadowMap && renderer.shadowMap.mapSize) {
-                    renderer.shadowMap.enabled = true;
-                    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-                    
-                    // Initialize with Ultra shadow quality (2048) by default
-                    const initialShadowQuality = 2048; // Ultra shadow quality
-                    
-                    // Use Ultra shadow quality from the start
-                    renderer.shadowMap.mapSize.width = initialShadowQuality;
-                    renderer.shadowMap.mapSize.height = initialShadowQuality;
-                } else {
-                    console.warn('⚠️ Shadow map not available, skipping shadow configuration');
+                    renderer.shadowMap.enabled = false; // Off by default - saves significant GPU
+                    renderer.shadowMap.type = THREE.BasicShadowMap; // Lighter than PCFSoft
+                    renderer.shadowMap.mapSize.width = 256;
+                    renderer.shadowMap.mapSize.height = 256;
                 }
                 
                 document.body.appendChild(renderer.domElement);
@@ -2123,8 +2116,8 @@
             water = new Water(
                 waterGeometry,
                 {
-                    textureWidth: 512,
-                    textureHeight: 512,
+                    textureWidth: 256,
+                    textureHeight: 256,
                     waterNormals: new THREE.TextureLoader().load( './textures/waternormals.jpg', function ( texture ) {
                         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
                     }),
@@ -2940,7 +2933,7 @@
 
         // --- Waterfall ---
         function createWaterfallSystem(zPosition) {
-            const particleCount = 3000; // Increased for taller waterfall coverage
+            const particleCount = 600; // Reduced for low-end PC performance (was 3000)
             const positions = new Float32Array(particleCount * 3);
             const velocities = new Float32Array(particleCount * 3);
 
@@ -3014,7 +3007,7 @@
         }
         
         // --- Performance Management System ---
-        let performanceMode = 'balanced'; // 'performance', 'balanced', 'quality'
+        let performanceMode = 'performance'; // 'performance', 'balanced', 'quality' - default lightweight for low-end PCs
         let targetFPS = 30;
         let frameSkip = 0;
         let lastFrameTime = 0;
@@ -3079,6 +3072,7 @@
                     if (composer) composer.enabled = false;
                     // Reduce shadow quality
                     if (renderer.shadowMap) {
+                        renderer.shadowMap.enabled = false;
                         renderer.shadowMap.mapSize.width = 256;
                         renderer.shadowMap.mapSize.height = 256;
                     }
@@ -3090,6 +3084,7 @@
                     if (composer) composer.enabled = true;
                     // Moderate shadow quality
                     if (renderer.shadowMap) {
+                        renderer.shadowMap.enabled = false; // Keep off for balanced too
                         renderer.shadowMap.mapSize.width = 512;
                         renderer.shadowMap.mapSize.height = 512;
                     }
@@ -3099,20 +3094,23 @@
                     frameSkip = 0; // No frame skipping
                     renderer.setPixelRatio(1.0);
                     if (composer) composer.enabled = true;
-                    // High shadow quality
                     if (renderer.shadowMap) {
+                        renderer.shadowMap.enabled = true; // Only enable in quality mode
                         renderer.shadowMap.mapSize.width = 1024;
                         renderer.shadowMap.mapSize.height = 1024;
                     }
                     break;
             }
             
-            // Fixed 1080p resolution regardless of performance mode
-            window.renderWidth = 1920;
-            window.renderHeight = 1080;
+            // Resolution scales with performance mode
+            const res = performanceMode === 'performance' ? { w: 960, h: 540 } :
+                        performanceMode === 'balanced' ? { w: 1280, h: 720 } : { w: 1920, h: 1080 };
+            window.renderWidth = res.w;
+            window.renderHeight = res.h;
             renderer.setSize(window.renderWidth, window.renderHeight, false);
+            if (composer) composer.setSize(window.renderWidth, window.renderHeight);
             
-            console.log(`🎯 Performance mode: ${performanceMode}, Target FPS: ${targetFPS}, Resolution: ${window.renderWidth}x${window.renderHeight} (1080p)`);
+            console.log(`🎯 Performance mode: ${performanceMode}, ${window.renderWidth}x${window.renderHeight}`);
         }
         
         // Scene optimization based on camera distance
@@ -3424,12 +3422,11 @@
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            
-            // Maintain fixed 1080p resolution regardless of window size
-            window.renderWidth = 1920;
-            window.renderHeight = 1080;
+            // Keep current performance-mode resolution (don't override)
+            if (!window.renderWidth) window.renderWidth = 960;
+            if (!window.renderHeight) window.renderHeight = 540;
             renderer.setSize(window.renderWidth, window.renderHeight, false);
-            composer.setSize(window.renderWidth, window.renderHeight);
+            if (composer) composer.setSize(window.renderWidth, window.renderHeight);
         }
 
         function updateLoadingProgress() {
