@@ -1646,12 +1646,12 @@
                 });
                 
                 // Initialize with Performance (75%) quality - lighter on low-end PCs
-                const initialQuality = 0.75; // Performance-first default
-                const initialPixelRatio = 0.75; // Lower for smoother FPS
+                const initialQuality = 0.5; // Ultra-lite default
+                const initialPixelRatio = 0.5; // Minimize GPU load
                 
-                // 720p base - lighter GPU load
-                window.renderWidth = Math.floor(1280 * initialQuality); // 960
-                window.renderHeight = Math.floor(720 * initialQuality);  // 540
+                // 640x360 base for weak PCs
+                window.renderWidth = 640;
+                window.renderHeight = 360;
                 renderer.setSize(window.renderWidth, window.renderHeight, false);
                 renderer.setPixelRatio(Math.min(initialPixelRatio, window.devicePixelRatio || 1));
                 
@@ -1783,7 +1783,11 @@
             console.log('🏗️ Building 3D environment...');
             
             // Lighting and Environment
-            createDarkPurpleAuroraSky();
+            if (performanceMode === 'performance') {
+                scene.background = new THREE.Color(0x0a0512); // Simple dark - no aurora shader
+            } else {
+                createDarkPurpleAuroraSky();
+            }
             const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
             scene.add(ambientLight);
             const moonLight = new THREE.DirectionalLight(0xaaaaff, 0.2);
@@ -1792,10 +1796,12 @@
             
             // Scene Objects
             createCastle(moonLight);
-            createTorches();
+            if (performanceMode !== 'performance') createTorches();
             createExhibits();
-            createWaterfallStructure();
-            createWaterfalls();
+            if (performanceMode !== 'performance') {
+                createWaterfallStructure();
+                createWaterfalls();
+            }
             
             // Event listeners and animation
             window.addEventListener('resize', onWindowResize, false);
@@ -2104,32 +2110,38 @@
                     gl_FragColor = vec4(finalColor + emissive, 1.0);
                 }
             `;
-            const wallMaterial = new THREE.ShaderMaterial({
-                vertexShader: wallVertexShader,
-                fragmentShader: wallFragmentShader,
-                uniforms: { time: { value: 0.0 } },
-                clipping: true
-            });
+            const wallMaterial = performanceMode === 'performance'
+                ? new THREE.MeshBasicMaterial({ color: 0x1a1520 }) // No shader - static dark purple
+                : new THREE.ShaderMaterial({
+                    vertexShader: wallVertexShader,
+                    fragmentShader: wallFragmentShader,
+                    uniforms: { time: { value: 0.0 } },
+                    clipping: true
+                });
 
-            // Replaced floor with a reflective water plane
+            // Floor: simple plane in perf mode, water shader otherwise
             const waterGeometry = new THREE.PlaneGeometry(castleWidth, castleDepth);
-            water = new Water(
-                waterGeometry,
-                {
+            if (performanceMode === 'performance') {
+                const floorMat = new THREE.MeshBasicMaterial({ color: 0x001a0f });
+                water = new THREE.Mesh(waterGeometry, floorMat);
+                water.rotation.x = -Math.PI / 2;
+                scene.add(water);
+            } else {
+                water = new Water(waterGeometry, {
                     textureWidth: 256,
                     textureHeight: 256,
                     waterNormals: new THREE.TextureLoader().load( './textures/waternormals.jpg', function ( texture ) {
                         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
                     }),
                     sunDirection: light.position.clone().normalize(),
-                    sunColor: 0xffaaff, // Pinkish tint to reflections
+                    sunColor: 0xffaaff,
                     waterColor: 0x001e0f,
-                    distortionScale: 0.75, // Reduced by 25% for less reflection
+                    distortionScale: 0.75,
                     fog: scene.fog !== undefined
-                }
-            );
-            water.rotation.x = -Math.PI / 2;
-            scene.add(water);
+                });
+                water.rotation.x = -Math.PI / 2;
+                scene.add(water);
+            }
 
             // Walls
             const wallGeo1 = new THREE.BoxGeometry(castleWidth, castleHeight, 2);
@@ -2187,24 +2199,19 @@
             ceilingLight.position.set(0, castleHeight + 10, 0);
             scene.add(ceilingLight);
             
-            // Add directional neon lights for wall highlights
-            const neonLight1 = new THREE.DirectionalLight(0xff0080, 0.3); // Pink neon
+            if (performanceMode !== 'performance') {
+            const neonLight1 = new THREE.DirectionalLight(0xff0080, 0.3);
             neonLight1.position.set(20, 30, -20);
             scene.add(neonLight1);
-            
-            const neonLight2 = new THREE.DirectionalLight(0x8000ff, 0.3); // Purple neon
+            const neonLight2 = new THREE.DirectionalLight(0x8000ff, 0.3);
             neonLight2.position.set(-20, 30, 20);
             scene.add(neonLight2);
-            
-            const neonLight3 = new THREE.DirectionalLight(0x0080ff, 0.3); // Blue neon
+            const neonLight3 = new THREE.DirectionalLight(0x0080ff, 0.3);
             neonLight3.position.set(20, 30, 20);
             scene.add(neonLight3);
-            
-            const neonLight4 = new THREE.DirectionalLight(0xff8000, 0.3); // Gold neon
+            const neonLight4 = new THREE.DirectionalLight(0xff8000, 0.3);
             neonLight4.position.set(-20, 30, -20);
             scene.add(neonLight4);
-            
-            // Add subtle floating neon particles for atmosphere
             const particleCount = 50;
             const particleGeometry = new THREE.BufferGeometry();
             const particlePositions = new Float32Array(particleCount * 3);
@@ -2245,8 +2252,8 @@
             const particles = new THREE.Points(particleGeometry, particleMaterial);
             scene.add(particles);
             
-            // Store particles for animation
             window.neonParticles = particles;
+            }
             
             scene.add(ceiling);
             
@@ -3066,8 +3073,8 @@
         function applyPerformanceSettings() {
             switch (performanceMode) {
                 case 'performance':
-                    targetFPS = 30; // Increased from 24 for smoother mouse look
-                    frameSkip = 1; // Reduced from 2 for better responsiveness
+                    targetFPS = 30;
+                    frameSkip = 1; // Render every other frame
                     renderer.setPixelRatio(0.5);
                     if (composer) composer.enabled = false;
                     // Reduce shadow quality
@@ -3160,23 +3167,21 @@
                 controls.update();
             }
 
-            // Animate aurora with NO STROBING - using gradient-based movement
-            if (auroraMaterial && auroraMaterial.uniforms && auroraMaterial.uniforms.time) {
+            if (performanceMode === 'performance') {
+                // Skip all per-frame animations in lite mode
+            } else if (auroraMaterial && auroraMaterial.uniforms && auroraMaterial.uniforms.time) {
                 // Use extremely slow time to eliminate all strobing
                 auroraMaterial.uniforms.time.value = elapsed * 0.1;
             }
             
-            // Animate wall shader with smooth neon effects (no strobing)
-            if (!shouldSkip) {
-            scene.traverse(child => {
-                if (child.isMesh && child.material.uniforms && child.material.uniforms.time) {
-                        // Use extremely slow time to eliminate all strobing
+            if (performanceMode !== 'performance' && !shouldSkip) {
+                scene.traverse(child => {
+                    if (child.isMesh && child.material && child.material.uniforms && child.material.uniforms.time) {
                         child.material.uniforms.time.value = elapsed * 0.1;
-                }
-            });
+                    }
+                });
             }
 
-            // Animate water (reduced frequency in performance mode)
             if (!shouldSkip && water && water.material && water.material.uniforms) {
                 water.material.uniforms['time'].value += 1.0 / targetFPS;
             }
@@ -3188,8 +3193,7 @@
                 });
             }
 
-            // Animate waterfall systems (reduced frequency in performance mode)
-            if (!shouldSkip) {
+            if (!shouldSkip && waterParticles && splashParticles) {
                 animateWaterfallSystem(waterParticles, splashParticles, 4, currentSplashIndex1);
                 animateWaterfallSystem(waterParticles2, splashParticles2, -4, currentSplashIndex2);
             }
@@ -3213,26 +3217,9 @@
                 window.atmosphericClouds.rotation.x += 0.00005; // Subtle tilt
             }
 
-                    // Animate frames (reduced frequency in performance mode)
-        if (!shouldSkip) {
-                updateAnimatedFrames(delta);
-        }
-        
-        // Reduce animated frame complexity in performance mode (but preserve frames)
-        if (performanceMode === 'performance' && animatedFrames.length > 10) {
-            // Instead of removing frames, reduce their animation complexity
-            animatedFrames.forEach((frameData, index) => {
-                if (frameData.material && frameData.material.uniforms) {
-                    // Reduce glow intensity in performance mode
-                    frameData.material.uniforms.glowIntensity.value = 0.2;
-                    frameData.material.uniforms.glowSpeed.value = 0.8;
-                }
-            });
-            console.log(`⚡ Reduced frame animation complexity for performance (${animatedFrames.length} frames preserved)`);
-        }
+            if (performanceMode !== 'performance' && !shouldSkip) updateAnimatedFrames(delta);
             
-            // Optimize scene based on camera distance (every 30 frames)
-            if (frameCount % 30 === 0) {
+            if (performanceMode !== 'performance' && frameCount % 30 === 0) {
                 optimizeSceneForDistance();
             }
 
@@ -3349,7 +3336,9 @@
             prevTime = time;
 
             try {
-                if (composer && composer.render) {
+                if (performanceMode === 'performance' && renderer && scene && camera) {
+                    renderer.render(scene, camera); // Direct render - no post-processing
+                } else if (composer && composer.render) {
                     composer.render();
                 } else if (renderer && scene && camera) {
                     renderer.render(scene, camera);
