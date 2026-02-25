@@ -1543,7 +1543,7 @@
                         return;
                     }
                     
-                    loadImageWithProxyForPreload(nft.mediaUrl, index, resolve, nft, totalCount);
+                    loadImageWithProxyForPreload(nft.mediaUrl, index, resolve, nft, 0, totalCount);
                 });
             });
             
@@ -1555,10 +1555,11 @@
         }
         
         // Function to load images directly from local Revelation Walls Images folder for pre-loading
-        function loadImageWithProxyForPreload(originalUrl, index, resolve, nftData = null, retryCount = 0) {
+        function loadImageWithProxyForPreload(originalUrl, index, resolve, nftData = null, retryCount = 0, totalCount = 100) {
             const localImagePath = retryCount > 0 ? originalUrl : getLocalImagePath(originalUrl, USE_SMALL_IMAGES, nftData);
             if (localImagePath) {
-                console.log(`🔄 Pre-loading local image ${index + 1}: ${localImagePath}`);
+                const resolvedUrl = localImagePath.startsWith('http') ? localImagePath : (typeof resolveImageUrl === 'function' ? resolveImageUrl(localImagePath) : new URL(localImagePath, window.location.href).href);
+                console.log(`🔄 Pre-loading local image ${index + 1}: ${resolvedUrl}`);
                 
                 const img = new Image();
                 img.crossOrigin = 'anonymous';
@@ -1572,7 +1573,7 @@
                 img.onload = () => {
                     clearTimeout(timeout);
                     console.log(`✅ Successfully pre-loaded image ${index + 1}: ${localImagePath}`);
-                    updateNFTProgress(index + 1, nftData.filter(nft => nft.collectionName === 'Revelation Walls').length);
+                    updateNFTProgress(index + 1, totalCount);
                     resolve({ success: true, index, img });
                 };
                 
@@ -1593,7 +1594,7 @@
                     if (retryCount === 0) {
                         console.log(`🔄 Retrying with full-size image ${index + 1}...`);
                         setTimeout(() => {
-                            loadImageWithProxyForPreload(originalUrl, index, resolve, nftRow, 1);
+                            loadImageWithProxyForPreload(originalUrl, index, resolve, nftData, 1, totalCount);
                         }, 500);
                     } else {
                         resolve({ success: false, index, error: 'load_error' });
@@ -1780,6 +1781,37 @@
         function buildEnvironment() {
             console.log('🏗️ Building 3D environment...');
             
+            // Guard: timeout may fire before prepareEnvironment - ensure scene exists
+            if (!scene) {
+                console.warn('⏰ Scene not ready (timeout?), initializing minimal environment...');
+                clock = new THREE.Clock();
+                scene = new THREE.Scene();
+                window.scene = scene;
+                scene.fog = new THREE.Fog(0x000000, 150, 400);
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                camera.position.set(0, 10, 20);
+                try {
+                    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', precision: 'mediump', stencil: false, depth: true, alpha: false });
+                    window.renderWidth = Math.min(1920, window.innerWidth);
+                    window.renderHeight = Math.min(1080, window.innerHeight);
+                    renderer.setSize(window.renderWidth, window.renderHeight);
+                    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                    const blockerEl = document.getElementById('blocker');
+                    (blockerEl || document.body).appendChild(renderer.domElement);
+                    window.renderer = renderer;
+                } catch (e) {
+                    console.error('❌ Renderer init failed:', e);
+                    return;
+                }
+                controls = new PointerLockControls(camera, document.body);
+                const blocker = document.getElementById('blocker');
+                const instructions = document.getElementById('instructions');
+                if (instructions) instructions.addEventListener('click', () => controls.lock());
+                controls.addEventListener('lock', () => { if (instructions) instructions.style.display = 'none'; if (blocker) blocker.style.display = 'none'; });
+                controls.addEventListener('unlock', () => { if (blocker) blocker.style.display = 'block'; if (instructions) instructions.style.display = ''; });
+                scene.add(controls.getObject());
+            }
+            
             // Lighting and Environment
             if (performanceMode === 'performance') {
                 scene.background = new THREE.Color(0x0a0512); // Simple dark - no aurora shader
@@ -1881,6 +1913,10 @@
 
         // --- Beautiful Dark Purple Aurora Borealis Sky ---
         function createDarkPurpleAuroraSky() {
+            if (!scene) {
+                console.warn('⚠️ createDarkPurpleAuroraSky: scene not ready, skipping');
+                return;
+            }
             const auroraVertexShader = `
                 varying vec2 vUv;
                 varying vec3 vPosition;
@@ -2110,36 +2146,56 @@
                 }
             `;
             const wallMaterial = performanceMode === 'performance'
-                ? new THREE.MeshBasicMaterial({ color: 0x1a1520 }) // No shader - static dark purple
+                ? new THREE.MeshBasicMaterial({ color: 0x1a1520, side: THREE.DoubleSide }) // No shader - static dark purple, visible from inside
                 : new THREE.ShaderMaterial({
                     vertexShader: wallVertexShader,
                     fragmentShader: wallFragmentShader,
                     uniforms: { time: { value: 0.0 } },
-                    clipping: true
+                    side: THREE.DoubleSide, // Critical: visible from inside the castle
+                    depthWrite: true,
+                    depthTest: true
                 });
 
             // Floor: simple plane in perf mode, water shader otherwise
             const waterGeometry = new THREE.PlaneGeometry(castleWidth, castleDepth);
             if (performanceMode === 'performance') {
-                const floorMat = new THREE.MeshBasicMaterial({ color: 0x001a0f });
+                const floorMat = new THREE.MeshBasicMaterial({ color: 0x001a0f, side: THREE.DoubleSide });
                 water = new THREE.Mesh(waterGeometry, floorMat);
                 water.rotation.x = -Math.PI / 2;
                 scene.add(water);
             } else {
-                water = new Water(waterGeometry, {
-                    textureWidth: 256,
-                    textureHeight: 256,
-                    waterNormals: new THREE.TextureLoader().load( './textures/waternormals.jpg', function ( texture ) {
-                        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-                    }),
-                    sunDirection: light.position.clone().normalize(),
-                    sunColor: 0xffaaff,
-                    waterColor: 0x001e0f,
-                    distortionScale: 0.75,
-                    fog: scene.fog !== undefined
+                const waterNormalsUrl = './textures/waternormals.jpg';
+                const loader = new THREE.TextureLoader();
+                const waterNormalsTex = loader.load(waterNormalsUrl, function (texture) {
+                    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                }, undefined, function (err) {
+                    console.warn('Water normals failed to load, using lit floor fallback:', err);
                 });
-                water.rotation.x = -Math.PI / 2;
-                scene.add(water);
+                try {
+                    water = new Water(waterGeometry, {
+                        textureWidth: 256,
+                        textureHeight: 256,
+                        waterNormals: waterNormalsTex,
+                        sunDirection: light.position.clone().normalize(),
+                        sunColor: 0xffaaff,
+                        waterColor: 0x001e0f,
+                        distortionScale: 0.75,
+                        fog: scene.fog !== undefined
+                    });
+                    water.rotation.x = -Math.PI / 2;
+                    scene.add(water);
+                } catch (e) {
+                    console.warn('Water init failed, using lit floor:', e);
+                    const floorMat = new THREE.MeshStandardMaterial({
+                        color: 0x001e1a,
+                        metalness: 0.3,
+                        roughness: 0.6,
+                        side: THREE.DoubleSide
+                    });
+                    water = new THREE.Mesh(waterGeometry, floorMat);
+                    water.rotation.x = -Math.PI / 2;
+                    scene.add(water);
+                }
             }
 
             // Walls
@@ -3057,6 +3113,8 @@
         }
         
         function applyPerformanceSettings() {
+            if (!renderer) return;
+            try {
             switch (performanceMode) {
                 case 'performance':
                     targetFPS = 30;
@@ -3104,6 +3162,9 @@
             if (composer) composer.setSize(window.renderWidth, window.renderHeight);
             
             console.log(`🎯 Performance mode: ${performanceMode}, ${window.renderWidth}x${window.renderHeight}`);
+            } catch (e) {
+                console.warn('⚠️ applyPerformanceSettings:', e);
+            }
         }
         
         // Scene optimization based on camera distance
